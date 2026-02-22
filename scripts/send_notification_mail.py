@@ -20,7 +20,7 @@ raw_receivers = os.getenv("RECEIVER_EMAILS")
 raw_attachments = os.getenv("ATTACHMENT_FILES", "")
 
 
-MARKDOWN_FILE = "../../data/weekly_report.md"
+MARKDOWN_FILE = "../data/weekly_report.md"
 
 
 def send_email():
