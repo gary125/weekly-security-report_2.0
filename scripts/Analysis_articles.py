@@ -4,93 +4,103 @@ import requests
 from datetime import datetime
 import os
 
-# === 設定 ===
 ARTICLE_LIST_PATH = "../data/news_links.json"
 TARGET_ID = 1
 OUTPUT_PATH = "../data/structured_report.json"
 
-# 讀取連結清單
+# 讀取文章清單
 with open(ARTICLE_LIST_PATH, "r", encoding="utf-8") as f:
     articles = json.load(f)
 
-# 找出指定 ID 的文章連結
-target_link = None
-for article in articles:
-    if article["id"] == TARGET_ID:
-        target_link = article["link"]
-        break
-
+# 找出目標文章連結
+target_link = next((a["link"] for a in articles if a["id"] == TARGET_ID), None)
 if not target_link:
     raise ValueError(f"找不到 id={TARGET_ID} 的文章連結")
 
-# 下載 Markdown 或原始 HTML
-response = requests.get(target_link)
-if response.status_code != 200:
-    raise Exception(f"無法取得文章內容，狀態碼 {response.status_code}")
+# 強制使用 r.jina.ai
+if not target_link.startswith("https://r.jina.ai/"):
+    target_link = "https://r.jina.ai/" + target_link
 
+print("抓取網址:", target_link)
+
+# 下載內容
+response = requests.get(target_link, timeout=15)
+response.raise_for_status()
 md_content = response.text
 
-# 可選：檢查是否是 Markdown 格式（這取決於你使用的 r.jina.ai 是否會轉換為 markdown）
-# print(md_content[:500])  # 手動檢查一下格式
-
-# 初始化整理資料結構
+# 初始化報告
 report = {
     "title": "",
-    "source": target_link,
+    "source": target_link.replace("https://r.jina.ai/", "", 1),
     "published_time": "",
-    "sections": {}
+    "main_article": "",
+    "sections": {
+        "daily_news": [],
+        "other_threats": []
+    }
 }
 
-# 擷取標題與時間（從 Markdown 中）
-title_match = re.search(r"^Title:\s*(.*)", md_content, re.MULTILINE)
-time_match = re.search(r"^Published Time:\s*(.*)", md_content, re.MULTILINE)
-
+# 1️⃣ 標題
+title_match = re.search(r"Title:\s*(.*)", md_content)
 if title_match:
     report["title"] = title_match.group(1).strip()
+
+# 2️⃣ 發布時間
+time_match = re.search(r"Published Time:\s*(.*)", md_content)
 if time_match:
     published_raw = time_match.group(1).strip()
-    published_dt = datetime.strptime(published_raw, "%a, %d %b %Y %H:%M:%S %Z")
-    report["published_time"] = published_dt.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        dt = datetime.strptime(published_raw, "%a, %d %b %Y %H:%M:%S %Z")
+        report["published_time"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        report["published_time"] = published_raw
 
-# 擷取章節
-section_pattern = r"^###\s+\*\*(.+?)\*\*"
-sections = [(m.group(1), m.start()) for m in re.finditer(section_pattern, md_content, re.MULTILINE)]
-sections.append(("EOF", len(md_content)))
+# 3️⃣ 主文 (去掉導覽、Markdown圖片、連結)
+main_split = re.split(r"\[\*\*", md_content, maxsplit=1)
+if main_split:
+    main_text = main_split[0]
+    main_text = re.sub(r"Markdown Content:\s*", "", main_text)
+    # 去掉圖片 Markdown ![...](...)
+    main_text = re.sub(r"!\[.*?\]\(.*?\)", "", main_text)
+    # 去掉連結 Markdown [text](url)
+    main_text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", main_text)
+    # 去掉多餘空行
+    main_text = "\n".join([line.strip() for line in main_text.splitlines() if line.strip()])
+    report["main_article"] = main_text
 
-# 處理章節內容
-for i in range(len(sections) - 1):
-    section_name = sections[i][0]
+# 4️⃣ 小新聞
+event_pattern = r"\[\*\*(.*?)\*\*\]\((.*?)\)\s*\n+(.*?)(?=\n\[\*\*|\n\*\*其他資安威脅|\Z)"
+events = re.findall(event_pattern, md_content, re.DOTALL)
+for title, url, desc in events:
+    # 提取圖片 URL
+    images = re.findall(r"!\[.*?\]\((.*?)\)", desc)
+    # 移除 Markdown
+    desc_clean = re.sub(r"!\[.*?\]\(.*?\)", "", desc)
+    desc_clean = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", desc_clean)
+    desc_clean = " ".join([line.strip() for line in desc_clean.splitlines() if line.strip()])
+    
+    report["sections"]["daily_news"].append({
+        "title": title.strip(),
+        "url": url.strip(),
+        "description": desc_clean,
+        "images": images
+    })
 
-    # 跳過不要的章節
-    if section_name.strip() == "近期資安日報":
-        continue
-
-    start = sections[i][1]
-    end = sections[i+1][1]
-    section_text = md_content[start:end]
-
-    report["sections"][section_name] = []
-
-    events = re.findall(r"\[\*\*(.*?)\*\*\]\((.*?)\)", section_text)
-    for title, url in events:
-        pattern = re.escape(f"[**{title}**]({url})") + r"\s*[\r\n]+(.*?)(?=\n\s*[\[\*]|$)"
-        desc_match = re.search(pattern, section_text, re.DOTALL)
-        description = desc_match.group(1).strip().replace("\n", " ") if desc_match else ""
-        report["sections"][section_name].append({
-            "title": title,
-            "url": url,
-            "description": description
+# 5️⃣ 其他資安威脅
+other_section = re.search(r"\*\*其他資安威脅\*\*(.*?)(?=\*\*近期資安日報\*\*|\Z)", md_content, re.DOTALL)
+if other_section:
+    other_content = other_section.group(1)
+    other_events = re.findall(r"\*\*\[(.*?)\]\((.*?)\)\*\*", other_content)
+    for title, url in other_events:
+        report["sections"]["other_threats"].append({
+            "title": title.strip(),
+            "url": url.strip()
         })
-
-# 移除 source 開頭的 proxy 前綴（如果存在）
-if report["source"].startswith("https://r.jina.ai/"):
-    report["source"] = report["source"].replace("https://r.jina.ai/", "", 1)
 
 # 確保資料夾存在
 os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-
-# 輸出結果
+# 輸出 JSON
 with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2, ensure_ascii=False)
 
-print(f"✅ 成功整理 id={TARGET_ID} 的文章，輸出到 {OUTPUT_PATH}")
+print(f"✅ 整理完成 id={TARGET_ID}，輸出到 {OUTPUT_PATH}")
