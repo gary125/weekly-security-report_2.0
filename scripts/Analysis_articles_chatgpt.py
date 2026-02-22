@@ -1,8 +1,8 @@
 import os
 from openai import OpenAI
 
-MERGED_FILE = "../../data/structured_report.json"
-REPORT_FILE = "../../data/structured_report_everyday.md"
+MERGED_FILE = "../data/structured_report.json"
+REPORT_FILE = "../data/structured_report_everyday.md"
 
 # ✅ 讀取 API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
