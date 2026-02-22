@@ -33,7 +33,7 @@ jobs:
       - name: AI Agent產生每日新聞摘要（GPT API）
         run: python scripts/mail/Analysis_articles_chatgpt.py
         env:
-          GROQ_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: 發送 Email 通知(每日新聞摘要)
         run: python scripts/mail/send_notification_mail_everyday.py
