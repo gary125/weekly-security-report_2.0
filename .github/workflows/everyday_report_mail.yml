@@ -40,5 +40,5 @@ jobs:
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          raw_receivers: ${{ secrets.raw_receivers }}
-          raw_attachments: ${{ secrets.raw_attachments }}   
+          RECEIVER_EMAILS: ${{ secrets.RECEIVER_EMAILS }}
+          ATTACHMENT_FILES: ${{ secrets.ATTACHMENT_FILES }}   
