@@ -6,3 +6,4 @@ groq
 markdown
 feedparser
 cloudscraper
+openai
